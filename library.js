@@ -127,14 +127,45 @@ plugin.getUser = async (remoteId) => {
 	return user.getUserFields(uid, ['username', 'userslug', 'picture']);
 };
 
+// plugin.process = async (token) => {
+// 	const payload = await jwt.verify(token, plugin.settings.secret);
+// 	const userData = await plugin.normalizePayload(payload);
+// 	const [uid, isNewUser] = await plugin.findOrCreateUser(userData);
+// 	await plugin.updateUserProfile(uid, userData, isNewUser);
+// 	await plugin.updateUserGroups(uid, userData);
+// 	await plugin.verifyUser(token, uid, isNewUser);
+// 	return uid;
+// };
+
 plugin.process = async (token) => {
-	const payload = await jwt.verify(token, plugin.settings.secret);
-	const userData = await plugin.normalizePayload(payload);
-	const [uid, isNewUser] = await plugin.findOrCreateUser(userData);
-	await plugin.updateUserProfile(uid, userData, isNewUser);
-	await plugin.updateUserGroups(uid, userData);
-	await plugin.verifyUser(token, uid, isNewUser);
-	return uid;
+    let secretOrKey = plugin.settings.secret.trim();
+
+    // Check if the secret is an RSA public key or a normal HMAC secret
+    const isPublicKey = secretOrKey.startsWith("-----BEGIN PUBLIC KEY-----");
+
+    if (isPublicKey) {
+        // Convert single-line key into properly formatted PEM key
+        secretOrKey = secretOrKey
+            .replace(/\\n/g, '\n') // Ensure escaped newlines are properly interpreted
+            .replace('-----BEGIN PUBLIC KEY----- ', '-----BEGIN PUBLIC KEY-----\n') // Add newline after header
+            .replace(' -----END PUBLIC KEY-----', '\n-----END PUBLIC KEY-----'); // Add newline before footer
+    }
+
+    console.log("🔹 Using key for verification:\n", secretOrKey); // Debugging
+
+    // Set the algorithm dynamically based on the key type
+    const algorithms = isPublicKey ? ["RS256"] : ["HS256"];
+
+    // Verify JWT using the appropriate method
+    const payload = await jwt.verify(token, secretOrKey, { algorithms });
+
+    const userData = await plugin.normalizePayload(payload);
+    const [uid, isNewUser] = await plugin.findOrCreateUser(userData);
+    await plugin.updateUserProfile(uid, userData, isNewUser);
+    await plugin.updateUserGroups(uid, userData);
+    await plugin.verifyUser(token, uid, isNewUser);
+
+    return uid;
 };
 
 plugin.normalizePayload = async (payload) => {
