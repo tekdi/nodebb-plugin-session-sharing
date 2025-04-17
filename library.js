@@ -30,6 +30,7 @@ const profileFields = [
 	'birthday',
 	'signature',
 	'aboutme',
+	"user_id"
 ];
 const payloadKeys = profileFields.concat([
 	'id', // the uniq identifier of that account
@@ -37,6 +38,7 @@ const payloadKeys = profileFields.concat([
 	'lastName', // dto.
 	'picture',
 	'groups',
+	"user_id"
 ]);
 
 const plugin = {
@@ -112,7 +114,14 @@ SocketPlugins.sessionSharing.findUserByRemoteId = async (socket, data) => {
 	return plugin.getUser(data.remoteId);
 };
 
-/* End Websocket Listeners */
+// Add a user field to the whitelist
+// This is used to allow the user_id field to be fetched
+// when using the getUser API endpoint
+ plugin.addUserField = async ({ uids, whitelist }) => {
+	whitelist.push('user_id'); // allow this field to be fetched
+	return { uids, whitelist };
+  };
+  /* End Websocket Listeners */
 
 /*
  *	Given a remoteId, show user data
@@ -124,21 +133,12 @@ plugin.getUser = async (remoteId) => {
 		return;
 	}
 
-	return user.getUserFields(uid, ['username', 'userslug', 'picture']);
+	return user.getUserFields(uid, ['username', 'userslug', 'picture','user_id']);
 };
 
-// plugin.process = async (token) => {
-// 	const payload = await jwt.verify(token, plugin.settings.secret);
-// 	const userData = await plugin.normalizePayload(payload);
-// 	const [uid, isNewUser] = await plugin.findOrCreateUser(userData);
-// 	await plugin.updateUserProfile(uid, userData, isNewUser);
-// 	await plugin.updateUserGroups(uid, userData);
-// 	await plugin.verifyUser(token, uid, isNewUser);
-// 	return uid;
-// };
 
 plugin.process = async (token) => {
-    let secretOrKey = plugin.settings.secret.trim();
+	let secretOrKey = plugin.settings.secret.trim();
 
     // Check if the secret is an RSA public key or a normal HMAC secret
     const isPublicKey = secretOrKey.startsWith("-----BEGIN PUBLIC KEY-----");
@@ -158,14 +158,14 @@ plugin.process = async (token) => {
 
     // Verify JWT using the appropriate method
     const payload = await jwt.verify(token, secretOrKey, { algorithms });
-
-    const userData = await plugin.normalizePayload(payload);
-    const [uid, isNewUser] = await plugin.findOrCreateUser(userData);
-    await plugin.updateUserProfile(uid, userData, isNewUser);
-    await plugin.updateUserGroups(uid, userData);
-    await plugin.verifyUser(token, uid, isNewUser);
-
-    return uid;
+	console.log("🔹 JWT payload:\n", payload); // Debugging
+	const userData = await plugin.normalizePayload(payload);
+	
+	const [uid, isNewUser] = await plugin.findOrCreateUser(userData);
+	await plugin.updateUserProfile(uid, userData, isNewUser);
+	await plugin.updateUserGroups(uid, userData);
+	await plugin.verifyUser(token, uid, isNewUser);
+	return uid;
 };
 
 plugin.normalizePayload = async (payload) => {
@@ -182,7 +182,7 @@ plugin.normalizePayload = async (payload) => {
 
 	payloadKeys.forEach(function (key) {
 		const propName = plugin.settings['payload:' + key];
-		if (payload.hasOwnProperty(propName)) {
+		if (payload[propName]) {
 			userData[key] = payload[propName];
 		}
 	});
@@ -191,10 +191,8 @@ plugin.normalizePayload = async (payload) => {
 		winston.warn('[session-sharing] No user id was given in payload');
 		throw new Error('payload-invalid');
 	}
-	const setFullname = userData.hasOwnProperty('fullname') || userData.hasOwnProperty('firstName') || userData.hasOwnProperty('lastName');
-	if (setFullname) {
-		userData.fullname = (userData.fullname || [userData.firstName, userData.lastName].join(' ')).trim();
-	}
+
+	userData.fullname = (userData.fullname || [userData.firstName, userData.lastName].join(' ')).trim();
 
 	if (!userData.username) {
 		userData.username = userData.fullname;
@@ -242,6 +240,7 @@ plugin.findOrCreateUser = async (userData) => {
 	const { id } = userData;
 	let isNewUser = false;
 	let userId = null;
+	
 	let queries = [db.sortedSetScore(plugin.settings.name + ':uid', userData.id)];
 
 	if (userData.email && userData.email.length) {
@@ -388,12 +387,38 @@ async function executeJoinLeave(uid, join, leave) {
 	]);
 }
 
+
 plugin.createUser = async (userData) => {
 	winston.verbose('[session-sharing] No user found, creating a new user for this login');
+	console.log("UserData incoming:", userData);
 
-	const uid = await user.create(_.pick(userData, profileFields));
+	const pickedData = _.pick(userData, profileFields); // Ensure user_id isn't here anymore
+	const uid = await user.create(pickedData);
+
 	await db.sortedSetAdd(plugin.settings.name + ':uid', uid, userData.id);
+
+	// ✅ Manually store the custom user_id
+	if (userData.user_id) {
+		// Extract the last part of the user_id after the last colon
+		const extractedUserId = userData.user_id.split(':').pop();
+		userData.user_id = extractedUserId;
+		await db.setObject(`user:${uid}`, { user_id: userData.user_id });
+		console.log(`Manually saved user_id for uid ${uid}:`, userData.user_id);
+	}
+
+	// ✅ Optional: Confirm it's saved
+	const stored = await user.getUserFields(uid, ['user_id']);
+	console.log('Confirmed saved user_id:', stored.user_id);
+
 	return uid;
+};
+
+// ✅ Whitelist 'user_id' so it shows in API
+plugin.addUserIdToWhitelist = async (hookData) => {
+	if (hookData.whitelist) {
+		hookData.whitelist.push('user_id');
+	}
+	return hookData;
 };
 
 plugin.addMiddleware = async function ({ req, res }) {

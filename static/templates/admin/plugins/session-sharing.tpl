@@ -166,6 +166,10 @@
 						<input type="text" id="payload:id" name="payload:id" title="Unique ID" class="form-control" placeholder="id">
 					</div>
 					<div class="mb-3">
+						<label class="form-label" for="payload:user_id">User ID</label>
+						<input type="text" id="payload:user_id" name="payload:user_id" title="User ID" class="form-control" placeholder="user_id">
+					</div>
+					<div class="mb-3">
 						<label class="form-label" for="payload:email">Email</label>
 						<input type="text" id="payload:email" name="payload:email" title="Email" class="form-control" placeholder="email">
 					</div>
