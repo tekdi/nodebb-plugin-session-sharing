@@ -10,7 +10,11 @@
 		{ "hook": "filter:config.get", "method": "appendConfig" },
 		{ "hook": "filter:middleware.render", "method": "appendTemplate" },
 		{ "hook": "action:settings.set", "method": "reloadSettings" },
-		{ "hook": "action:login.continue", "method": "saveReverseToken" }
+		{ "hook": "action:login.continue", "method": "saveReverseToken" },
+		{
+			"hook": "filter:user.whitelistFields",
+			"method": "addUserField"
+		  }
 	],
 	"scripts": [
 		"static/lib/main.js"
