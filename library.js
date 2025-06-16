@@ -35,6 +35,7 @@ const profileFields = [
 	'user_id',
 	'designation',
 	'location',
+	'is_user_guide_read',
 ];
 const payloadKeys = profileFields.concat([
 	'id', // the uniq identifier of that account
@@ -45,6 +46,7 @@ const payloadKeys = profileFields.concat([
 	'user_id',
 	'designation',
 	'location',
+	'is_user_guide_read',
 ]);
 
 const plugin = {
@@ -138,6 +140,7 @@ SocketPlugins.sessionSharing.findUserByRemoteId = async (socket, data) => {
 // when using the getUser API endpoint
 plugin.addUserField = async ({ uids, whitelist }) => {
 	whitelist.push('user_id'); // allow this field to be fetched
+	whitelist.push('is_user_guide_read'); // allow this field to be fetched
 	return { uids, whitelist };
 };
 /* End Websocket Listeners */
@@ -157,6 +160,7 @@ plugin.getUser = async (remoteId) => {
 		'userslug',
 		'picture',
 		'user_id',
+		'is_user_guide_read',
 		'designation',
 		'location',
 	]);
@@ -383,6 +387,10 @@ plugin.updateUserProfile = async (uid, userData, isNewUser) => {
 				await user.setUserField(uid, 'email', email);
 				await user.email.confirmByUid(uid, 0);
 			}
+    		// Handle is_user_guide_read update separately
+			if (typeof userData.is_user_guide_read !== 'undefined') {
+				await plugin.updateUserGuideReadStatus(uid, userData.is_user_guide_read);
+			}
 
 			// If it errors out, not that big of a deal, continue anyway.
 			if (!userObj) {
@@ -473,7 +481,10 @@ plugin.createUser = async (userData) => {
 		const extractedUserId = userData.user_id.split(':').pop();
 		userData.user_id = extractedUserId;
 		await db.setObject(`user:${uid}`, { user_id: userData.user_id });
+		userData.is_user_guide_read = false;
+		await db.setObject(`user:${uid}`, { is_user_guide_read: userData.is_user_guide_read });
 		console.log(`Manually saved user_id for uid ${uid}:`, userData.user_id);
+		console.log(`Manually saved is_user_guide_read for uid ${uid}:`, userData.is_user_guide_read);
 	}
 
 	// ✅ Optional: Confirm it's saved
@@ -487,6 +498,7 @@ plugin.createUser = async (userData) => {
 plugin.addUserIdToWhitelist = async (hookData) => {
 	if (hookData.whitelist) {
 		hookData.whitelist.push('user_id');
+		hookData.whitelist.push('is_user_guide_read');
 	}
 	return hookData;
 };
@@ -871,6 +883,21 @@ plugin.updateUserDesignationAndLocation = async (uid, userData) => {
 				`[session-sharing] Error updating designation and location for uid ${uid}: ${error.message}`
 			);
 		}
+	}
+};
+// Add this new function to handle updating is_user_guide_read
+plugin.updateUserGuideReadStatus = async (uid, isRead) => {
+	try {
+		await db.setObjectField(`user:${uid}`, 'is_user_guide_read', isRead);
+		winston.verbose(
+			`[session-sharing] Updated is_user_guide_read status for uid ${uid} to ${isRead}`
+		);
+		return true;
+	} catch (error) {
+		winston.warn(
+			`[session-sharing] Error updating is_user_guide_read status for uid ${uid}: ${error.message}`
+		);
+		return false;
 	}
 };
 module.exports = plugin;
